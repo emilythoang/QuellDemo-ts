@@ -1164,8 +1164,8 @@ class QuellCache {
       console.log(
         `cacheResponse[key] is ${JSON.stringify(cacheResponse[key])}`
       );
-      console.log(`cacheResponse[key] is ${cacheResponse['artist']}`);
-      console.log(`cacheResponse[key] is ${cacheResponse['artist']['albums']}`);
+      // console.log(`cacheResponse[key] is ${cacheResponse['artist']}`);
+      // console.log(`cacheResponse[key] is ${cacheResponse['artist']['albums']}`);
 
       // for each key, check whether data stored at that key is an array or an object
       const checkResponse = serverResponse.hasOwnProperty(key)
@@ -1205,8 +1205,7 @@ class QuellCache {
           // you query for 4 objects (which includes the 2 cached objects) only returning
           // the 2 new objects from the server)
           // if the keys are identical, we can return a "simple" merge of both
-          const cacheKeys = [];
-          // const cacheKeys = Object.keys(cacheResponse[key][0]) ?? [];
+          const cacheKeys = Object.keys(cacheResponse[key][0]);
           console.log(`cacheKeys is ${cacheKeys}`);
           const serverKeys = Object.keys(serverResponse[key][0]);
           console.log(`serverKeys is ${serverKeys}`);
@@ -1219,8 +1218,8 @@ class QuellCache {
             console.log(`key on 1185 is ${key}`);
             console.log(`mergedResponse[key] is ${mergedResponse[key]}`);
             mergedResponse[key] = [
-              ...cacheResponse[key],
-              ...serverResponse[key],
+              { ...cacheResponse[key] },
+              { ...serverResponse[key] },
             ];
           }
           // otherwise, we need to combine the responses at the object level
@@ -1283,25 +1282,19 @@ class QuellCache {
             console.log(JSON.stringify(queryProto[key][fieldName]));
             // recurse joinResponses on that object to create deeply nested copy on mergedResponse
             let mergedRecursion = {};
-            console.log(`1285 ${cacheResponse}`);
-            console.log(`1285 ${cacheResponse[key]}`);
-            console.log(`1285 ${cacheResponse[key][fieldName]}`);
-
             console.log(`1285 ${JSON.stringify(cacheResponse[key])}`);
+            console.log(`1286 ${cacheResponse[key][fieldName]}`);
             console.log(
-              `1292 ${JSON.stringify(cacheResponse[key][fieldName])}`
+              `1288 ${JSON.stringify(cacheResponse[key][fieldName])}`
             );
-
-            console.log(`1285 ${serverResponse}`);
-            console.log(`1285 ${serverResponse[key]}`);
-            console.log(`1285 ${serverResponse[key][fieldName]}`);
-            console.log(`1285 ${JSON.stringify(serverResponse[key])}`);
+            console.log(`1290 ${serverResponse[key][fieldName]}`);
+            console.log(`1291 ${JSON.stringify(serverResponse[key])}`);
             console.log(
-              `1285 ${JSON.stringify(serverResponse[key][fieldName])}`
+              `1293 ${JSON.stringify(serverResponse[key][fieldName])}`
             );
             if (
-              cacheResponse[key].hasOwnProperty(fieldName) &&
-              serverResponse[key].hasOwnProperty(fieldName)
+              cacheResponse[key][fieldName] &&
+              serverResponse[key][fieldName]
             ) {
               console.log('hit on 1262');
               mergedRecursion = this.joinResponses(
