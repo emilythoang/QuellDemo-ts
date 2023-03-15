@@ -11,47 +11,57 @@ const defaultCostParams = {
   scalarCost: 1, // cost of retrieving a scalar
   depthCostFactor: 1.5, // multiplicative cost of each depth level
   maxDepth: 10, //depth limit parameter
-  ipRate: 3 // requests allowed per second
-}
+  ipRate: 3, // requests allowed per second
+};
 
 let idCache = {};
 
 class QuellCache {
   // default expiry time is 14 days in milliseconds
-    constructor(schema, redisPort, cacheExpiration = 1209600000, costParameters = defaultCostParams, idCache) {
-      this.idCache = idCache
-      this.schema = schema;
-      this.costParameters = Object.assign(defaultCostParams, costParameters);
-      this.depthLimit = this.depthLimit.bind(this);
-      this.costLimit = this.costLimit.bind(this);
-      this.rateLimiter = this.rateLimiter.bind(this);
-      this.queryMap = this.getQueryMap(schema);
-      this.mutationMap = this.getMutationMap(schema);
-      this.fieldsMap = this.getFieldsMap(schema);
-      this.idMap = this.getIdMap();
-      this.cacheExpiration = cacheExpiration;
-      this.redisReadBatchSize = 10;
-      this.redisCache = redis.createClient({ socket: {port: redisPort, host: 'redis-13680.c8.us-east-1-3.ec2.cloud.redislabs.com'}, password: '6uVbPwQU1rWm9cScHQU8YasjZ2lHeO8q'});
-      this.query = this.query.bind(this);
-      this.parseAST = this.parseAST.bind(this);
-      this.clearCache = this.clearCache.bind(this);
-      this.buildFromCache = this.buildFromCache.bind(this);
-      this.generateCacheID = this.generateCacheID.bind(this);
-      this.updateCacheByMutation = this.updateCacheByMutation.bind(this);
-      this.deleteCacheById = this.deleteCacheById.bind(this);
-      this.getStatsFromRedis = this.getStatsFromRedis.bind(this);
-      this.getRedisInfo = this.getRedisInfo.bind(this);
-      this.getRedisKeys = this.getRedisKeys.bind(this);
-      this.getRedisValues = this.getRedisValues.bind(this);
-      this.joinResponses  = this.joinResponses.bind(this);
-      this.redisCache.connect()
-        .then(() => {
-          console.log('Connected to redisCache');
-        });
-  
+  constructor(
+    schema,
+    redisPort,
+    cacheExpiration = 1209600000,
+    costParameters = defaultCostParams,
+    idCache
+  ) {
+    this.idCache = idCache;
+    this.schema = schema;
+    this.costParameters = Object.assign(defaultCostParams, costParameters);
+    this.depthLimit = this.depthLimit.bind(this);
+    this.costLimit = this.costLimit.bind(this);
+    this.rateLimiter = this.rateLimiter.bind(this);
+    this.queryMap = this.getQueryMap(schema);
+    this.mutationMap = this.getMutationMap(schema);
+    this.fieldsMap = this.getFieldsMap(schema);
+    this.idMap = this.getIdMap();
+    this.cacheExpiration = cacheExpiration;
+    this.redisReadBatchSize = 10;
+    this.redisCache = redis.createClient({
+      socket: {
+        port: redisPort,
+        host: 'redis-13680.c8.us-east-1-3.ec2.cloud.redislabs.com',
+      },
+      password: '6uVbPwQU1rWm9cScHQU8YasjZ2lHeO8q',
+    });
+    this.query = this.query.bind(this);
+    this.parseAST = this.parseAST.bind(this);
+    this.clearCache = this.clearCache.bind(this);
+    this.buildFromCache = this.buildFromCache.bind(this);
+    this.generateCacheID = this.generateCacheID.bind(this);
+    this.updateCacheByMutation = this.updateCacheByMutation.bind(this);
+    this.deleteCacheById = this.deleteCacheById.bind(this);
+    this.getStatsFromRedis = this.getStatsFromRedis.bind(this);
+    this.getRedisInfo = this.getRedisInfo.bind(this);
+    this.getRedisKeys = this.getRedisKeys.bind(this);
+    this.getRedisValues = this.getRedisValues.bind(this);
+    this.joinResponses = this.joinResponses.bind(this);
+    this.redisCache.connect().then(() => {
+      console.log('Connected to redisCache');
+    });
   }
 
-   /**
+  /**
    * A redis-based IP rate limiter method. It:
    *    - receives the ipRate in requests per second from the request object on the front-end,
    *    - if there is no ipRate set on front-end, it'll default to the value in the defaultCostParameters,
@@ -63,21 +73,22 @@ class QuellCache {
    *  @param {Object} res - Express response object, will carry query response to next middleware
    *  @param {Function} next - Express next middleware function, invoked when QuellCache completes its work
    */
-  async rateLimiter (req, res, next) {
+  async rateLimiter(req, res, next) {
     let ipRates;
-     //ipRate can be reassigned to get ipRate limit from req.body if user selects requests limit
-     if (req.body.costOptions.ipRate) ipRates = req.body.costOptions.ipRate;
-     //  else ipRates = this.costParameters.ipRate;
-     //return error if no query in request.
-     if (!req.body.query) return next({log: 'Error: no GraphQL query found on request body'});
-     const ip = req.ip;
-     const now = Math.floor(Date.now() / 1000);
-     const ipKey = `${ip}:${now}`;
+    //ipRate can be reassigned to get ipRate limit from req.body if user selects requests limit
+    if (req.body.costOptions.ipRate) ipRates = req.body.costOptions.ipRate;
+    //  else ipRates = this.costParameters.ipRate;
+    //return error if no query in request.
+    if (!req.body.query)
+      return next({ log: 'Error: no GraphQL query found on request body' });
+    const ip = req.ip;
+    const now = Math.floor(Date.now() / 1000);
+    const ipKey = `${ip}:${now}`;
 
-     this.redisCache.incr(ipKey, (err, count) => {
+    this.redisCache.incr(ipKey, (err, count) => {
       if (err) {
         console.error('Redis cache error: ', err);
-        return next({ log: 'Internal Server Error in redis :(' })
+        return next({ log: 'Internal Server Error in redis :(' });
       }
 
       this.redisCache.expire(ipKey, 1);
@@ -87,10 +98,13 @@ class QuellCache {
 
     const calls = await this.getFromRedis(ipKey);
 
-    if (calls > ipRates) return next({ log: `Express error handler caught too many requests from this IP address: ${ip}` });  
-    
+    if (calls > ipRates)
+      return next({
+        log: `Express error handler caught too many requests from this IP address: ${ip}`,
+      });
+
     return next();
-  } 
+  }
 
   /**
    * The class's controller method. It:
@@ -106,17 +120,20 @@ class QuellCache {
    *  @param {Function} next - Express next middleware function, invoked when QuellCache completes its work
    */
   async query(req, res, next) {
-    if (!req.body.query) return next({ log: 'Error: no GraphQL query found on request body' });
+    if (!req.body.query)
+      return next({ log: 'Error: no GraphQL query found on request body' });
     // retrieve GraphQL query string from request object;
     const queryString = req.body.query;
 
     // create abstract syntax tree with graphql-js parser
     //if depth limit was implemented, then we don't need to run parse again and instead grab from res.locals.
     const AST = res.locals.AST ? res.locals.AST : parse(queryString);
-   
+
     // create response prototype, and operation type, and fragments object
     // the response prototype is used as a template for most operations in quell including caching, building modified requests, and more
-    const { proto, operationType, frags } = res.locals.parsedAST ? res.locals.parsedAST : this.parseAST(AST);
+    const { proto, operationType, frags } = res.locals.parsedAST
+      ? res.locals.parsedAST
+      : this.parseAST(AST);
 
     // pass-through for queries and operations that QuellCache cannot handle
     if (operationType === 'unQuellable') {
@@ -134,41 +151,39 @@ class QuellCache {
        * we can have two types of operation to take care of
        * MUTATION OR QUERY
        */
-      
-    } else if (operationType === 'noID'){
+    } else if (operationType === 'noID') {
       graphql({ schema: this.schema, source: queryString })
-      .then((queryResult) => {
-        res.locals.queryResponse = queryResult;
-        return next();
-      })
-      .catch((error) => {
-        // console.log('error caught when operationType is noID');
-        return next({ log:'graphql library error' });
-      });
+        .then((queryResult) => {
+          res.locals.queryResponse = queryResult;
+          return next();
+        })
+        .catch((error) => {
+          // console.log('error caught when operationType is noID');
+          return next({ log: 'graphql library error' });
+        });
       let redisValue = await this.getFromRedis(queryString);
-      if(redisValue != null){
+      if (redisValue != null) {
         redisValue = JSON.parse(redisValue);
         res.locals.queryResponse = redisValue; //
         return next();
       } else {
-          graphql({ schema: this.schema, source: queryString })
+        graphql({ schema: this.schema, source: queryString })
           .then((queryResult) => {
             res.locals.queryResponse = queryResult;
             this.writeToCache(queryString, queryResult);
             return next();
           })
           .catch((error) => {
-            return next({ log:'graphql library error line 206' });
+            return next({ log: 'graphql library error line 206' });
           });
-        }
-    
+      }
     } else if (operationType === 'mutation') {
       // console.log('operationType is a mutation');
-      
+
       //clear cache on mutation because now cache data is stale
       this.redisCache.flushAll();
       idCache = {};
-      
+
       let mutationQueryObject;
       let mutationName;
       let mutationType;
@@ -198,7 +213,7 @@ class QuellCache {
         })
         .catch((error) => {
           // console.log('error caught in graphql database response');
-          return next({ log:'graphql library error line 244' });
+          return next({ log: 'graphql library error line 244' });
         });
     } else {
       // if QUERY
@@ -230,6 +245,7 @@ class QuellCache {
             const databaseResponse = JSON.parse(
               JSON.stringify(databaseResponseRaw)
             );
+            console.log(`248 ${JSON.stringify(databaseResponse)}`);
             // iterate over the keys in cacheresponse data to see if the cache has any data
             let cacheHasData = false;
             for (const key in cacheResponse.data) {
@@ -237,7 +253,7 @@ class QuellCache {
                 cacheHasData = true;
               }
             }
-
+            console.log(cacheHasData);
             // join uncached and cached responses, if cache does not have data then just use the database response
             mergedResponse = cacheHasData
               ? this.joinResponses(
@@ -246,13 +262,15 @@ class QuellCache {
                   prototype
                 )
               : databaseResponse;
-            // console.log('merged response: ', mergedResponse)
-            // console.log('calling normalize for cache');
+            console.log('merged response: ', mergedResponse);
+            console.log('calling normalize for cache');
             let currName = 'string it should not be again';
             const successfulCache = await this.normalizeForCache(
               mergedResponse.data,
               this.queryMap,
-              prototype, currName, newQueryString
+              prototype,
+              currName,
+              newQueryString
             );
             mergedResponse.cached = false;
             // console.log('after SuccessfulCache has been normalized, sending merged response');
@@ -260,11 +278,11 @@ class QuellCache {
             return next();
           })
           .catch((error) => {
+            console.log(error.message);
             // console.log('error present when queryObj.keys has a length greater than 0, inside else case:')
-            return next({ log:'graphql library error line 318' });
+            return next({ log: 'graphql library error line 318' });
           });
       } else {
-
         // if queryObject is empty, there is nothing left to query, can directly send information from cache
         // console.log('Returning response and saving it to res.locals, if query obj is empty, then all data is in cache');
         cacheResponse.cached = true;
@@ -274,7 +292,7 @@ class QuellCache {
     }
   }
 
-    /**
+  /**
    * UpdateIdCache:
    *    - stores keys in a nested object under parent name
    *    - if the key is a duplication, they are stored in an array
@@ -283,33 +301,33 @@ class QuellCache {
    *  @param {String} currName - The parent object name
    */
 
-      updateIdCache(objKey, keyWithID, currName) {
-        //if the parent object is not yet defined
-        if (!idCache[currName]) {
-          idCache[currName] = {};
-          idCache[currName][objKey] = keyWithID;
-          return;
-        } 
-        //if parent obj is defined, but this is the first child key
-        else if (!idCache[currName][objKey]) {
-          idCache[currName][objKey] = [];
-        }
-        idCache[currName][objKey].push(keyWithID)
-        //update ID cache under key of currName in an array
-      }
+  updateIdCache(objKey, keyWithID, currName) {
+    //if the parent object is not yet defined
+    if (!idCache[currName]) {
+      idCache[currName] = {};
+      idCache[currName][objKey] = keyWithID;
+      return;
+    }
+    //if parent obj is defined, but this is the first child key
+    else if (!idCache[currName][objKey]) {
+      idCache[currName][objKey] = [];
+    }
+    idCache[currName][objKey].push(keyWithID);
+    //update ID cache under key of currName in an array
+  }
 
+  /**
+   * parseAST traverses the abstract syntax tree depth-first to create a template for future operations, such as
+   * request data from the cache, creating a modified query string for additional information needed, and joining cache and database responses
+   * @param {Object} AST - an abstract syntax tree generated by gql library that we will traverse to build our prototype
+   * @param {Object} options - a field for user-supplied options, not fully integrated
+   * RETURNS prototype, operationType, and frags object
+   */
 
-/**
- * parseAST traverses the abstract syntax tree depth-first to create a template for future operations, such as
- * request data from the cache, creating a modified query string for additional information needed, and joining cache and database responses
- * @param {Object} AST - an abstract syntax tree generated by gql library that we will traverse to build our prototype
- * @param {Object} options - a field for user-supplied options, not fully integrated
- * RETURNS prototype, operationType, and frags object
-*/
-
- parseAST(AST, options = { userDefinedID: null }) { //options = { userDefinedID: null }
+  parseAST(AST, options = { userDefinedID: null }) {
+    //options = { userDefinedID: null }
     // console.log('Inside parseAST')
-    
+
     // initialize prototype as empty object
     // information from AST is distilled into the prototype for easy access during caching, rebuilding query strings, etc.
     const proto = {};
@@ -364,21 +382,17 @@ class QuellCache {
         // update stack for path tracking
         stack.push(node.name.value);
 
-
         // extract base-level fields in the fragment into frags object
         // const fragName = node.typeCondition.name.value.toLowerCase() + "s"; //this returns albums
         const fragName = node.name.value; //this returns albumFragment
         // console.log('fragName should be albumFragment:', node.name.value);
         // console.log('fragName should be album:', node.typeCondition.name.value);
-        
 
         frags[fragName] = {}; //adding fragName to frags object as an empty object
         for (let i = 0; i < node.selectionSet.selections.length; i++) {
-          frags[fragName][
-              node.selectionSet.selections[i].name.value
-            ] = true;
-          }
-        },
+          frags[fragName][node.selectionSet.selections[i].name.value] = true;
+        }
+      },
       Field: {
         enter(node) {
           // console.log('inside Field in parseAST, current node:', node);
@@ -432,10 +446,7 @@ class QuellCache {
             ) {
               auxObj.__id = arg.value.value;
             }
-
           });
-
-          
 
           // gather auxillary data such as aliases, arguments, query type, and more to append to the prototype for future reference
 
@@ -447,11 +458,11 @@ class QuellCache {
 
           auxObj.__args = Object.keys(argsObj).length > 0 ? argsObj : null;
 
-         // adds auxObj fields to prototype, allowing future access to type, alias, args, etc.
-         fieldArgs[fieldType] = {
-          ...argsObj[fieldType],
-          ...auxObj,
-        };
+          // adds auxObj fields to prototype, allowing future access to type, alias, args, etc.
+          fieldArgs[fieldType] = {
+            ...argsObj[fieldType],
+            ...auxObj,
+          };
           // add value to stacks to keep track of depth-first parsing path
           stack.push(fieldType);
         },
@@ -498,10 +509,9 @@ class QuellCache {
               return BREAK;
             }
 
-
             // place current fieldArgs object onto fieldsObject so it gets passed along to prototype
             // fieldArgs contains arguments, aliases, etc.
-            
+
             // console.log("Before reassigning fieldsObject, fieldsValue: ", fieldsValues)
             // console.log("Before reassigning fieldsObject, fieldArgs: ", fieldArgs)
             const fieldsObject = {
@@ -513,9 +523,12 @@ class QuellCache {
             // loop through stack to get correct path in proto for temp object;
 
             stack.reduce((prev, curr, index) => {
-              return index + 1 === stack.length // if last item in path
-                ? (prev[curr] = { ...fieldsObject }) //set value
-                : (prev[curr] = prev[curr]); // otherwise, if index exists, keep value
+              // return index + 1 === stack.length // if last item in path
+              //   ? (prev[curr] = { ...fieldsObject }) //set value
+              //   : (prev[curr] = prev[curr]); // otherwise, if index exists, keep value
+              if (!prev) prev = {};
+              if (index + 1 === stack.length) prev[curr] = { ...fieldsObject };
+              return prev[curr];
             }, proto);
             // console.log('proto after stack.reduce, proto:', proto);
           }
@@ -525,10 +538,9 @@ class QuellCache {
           stack.pop();
         },
       },
-    }); 
+    });
     return { proto, operationType, frags };
-  };
-
+  }
 
   /**
    * updateProtoWithFragment takes collected fragments and integrates them onto the prototype where referenced
@@ -611,18 +623,18 @@ class QuellCache {
    */
   checkFromRedis(key) {
     // console.log('checking with Redis');
-    
+
     return this.redisCache.exists(key, (error, result) =>
-        error ? reject(error) : resolve(result)
-      );
+      error ? reject(error) : resolve(result)
+    );
   }
 
   execRedisRunQueue(redisRunQueue) {
     // console.log('inside execRedisRunQueue');
     return redisRunQueue.exec((error, result) =>
-        error ? reject(error) : resolve(result)
-      )}
-  
+      error ? reject(error) : resolve(result)
+    );
+  }
 
   /**
    * getFromRedis reads from Redis cache and returns a promise (Redis v4 natively returns a promise).
@@ -634,9 +646,9 @@ class QuellCache {
     // console.log('in getFromRedis, here is key:', key)
     // console.log('inside get from redis');
     return this.redisCache.get(lowerKey, (error, result) =>
-        error ? reject(error) : resolve(result)
-      );
-    };
+      error ? reject(error) : resolve(result)
+    );
+  }
 
   /**
    *  getMutationMap generates a map of mutation to GraphQL object types. This mapping is used
@@ -648,8 +660,8 @@ class QuellCache {
     // get object containing all root mutations defined in the schema
     const mutationTypeFields = schema._mutationType._fields;
     // if queryTypeFields is a function, invoke it to get object with queries
-    const mutationsObj = 
-        typeof mutationTypeFields === 'function'
+    const mutationsObj =
+      typeof mutationTypeFields === 'function'
         ? mutationTypeFields()
         : mutationTypeFields;
     for (const mutation in mutationsObj) {
@@ -797,9 +809,7 @@ class QuellCache {
     for (let typeKey in prototype) {
       // if current key is a root query, check cache and set any results to itemFromCache
       if (prototypeKeys.includes(typeKey)) {
-        let cacheID = subID
-          ? subID
-          : this.generateCacheID(prototype[typeKey]);
+        let cacheID = subID ? subID : this.generateCacheID(prototype[typeKey]);
         const keyName = prototype[typeKey].__args?.name;
         if (idCache[keyName] && idCache[keyName][cacheID]) {
           cacheID = idCache[keyName][cacheID];
@@ -888,18 +898,18 @@ class QuellCache {
         if (
           (itemFromCache === null || !itemFromCache.hasOwnProperty(typeKey)) &&
           typeof prototype[typeKey] !== 'object' &&
-          !typeKey.includes('__') 
-          && !itemFromCache[0]
+          !typeKey.includes('__') &&
+          !itemFromCache[0]
         ) {
           prototype[typeKey] = false;
         }
         // if this field is a nested query, then recurse the buildFromCache function and iterate through the nested query
         if (
           !Object.keys(itemFromCache).length > 0 &&
-          typeof(itemFromCache) == 'object' &&
+          typeof itemFromCache == 'object' &&
           !typeKey.includes('__') &&
           typeof prototype[typeKey] === 'object'
-        ){
+        ) {
           const cacheID = await this.generateCacheID(prototype);
           const cacheResponse = await this.getFromRedis(cacheID);
           if (cacheResponse) itemFromCache[typeKey] = JSON.parse(cacheResponse);
@@ -1040,7 +1050,8 @@ class QuellCache {
    */
   createQueryStr(queryObject, operationType) {
     // console.log('inside createQueryStr', queryObject);
-    // console.log('inside queryObject');
+    // console.log('inside createQueryStr', Object.keys(queryObject));
+
     if (Object.keys(queryObject).length === 0) return '';
     const openCurly = '{';
     const closeCurly = '}';
@@ -1052,6 +1063,7 @@ class QuellCache {
     // iterate over every key in queryObject
     // place key into query object
     for (let key in queryObject) {
+      // console.log(`key on line 1055 is ${key}`);
       mainStr += ` ${key}${getAliasType(queryObject[key])}${getArgs(
         queryObject[key]
       )} ${openCurly} ${stringify(queryObject[key])}${closeCurly}`;
@@ -1063,42 +1075,62 @@ class QuellCache {
       // initialize inner string
       let innerStr = '';
       // iterate over KEYS in OBJECT
+      // console.log(`fields is ${JSON.stringify(fields)}`);
+      // console.log(`all the keys are ${Object.keys(fields)}`);
+      // console.log(`all the values are ${Object.values(fields)}`);
+
       for (const key in fields) {
+        // console.log(`key on line 1074 is ${key}`);
+        // console.log(`fields[key] is ${fields[key]}`);
         // is fields[key] string? concat with inner string & empty space
         if (typeof fields[key] === 'boolean') {
           innerStr += key + ' ';
         }
         // is key object? && !key.includes('__'), recurse stringify
         if (typeof fields[key] === 'object' && !key.includes('__')) {
-          innerStr += `${key}${getAliasType(fields[key])}${getArgs(
-            fields[key]
-          )} ${openCurly} ${stringify(fields[key])}${closeCurly} `;
+          console.log(`key is ${key}`);
+          console.log(
+            `fields[key] as an object is ${JSON.stringify(fields[key])}`
+          );
+          const fieldsObj = fields[key];
+          console.log(`fieldsObj is ${fieldsObj}`);
+          const type = getAliasType(fieldsObj);
+          const args = getArgs(fieldsObj);
+          console.log(`type is ${type} and args is ${args}`);
+          innerStr += `${key}${type}${args} ${openCurly} ${stringify(
+            fieldsObj
+          )}${closeCurly} `;
+          // innerStr += `${key}${getAliasType(fields[key])}${getArgs(
+          //   fields[key]
+          // )} ${openCurly} ${stringify(fields[key])}${closeCurly} `;
+          // console.log(`innerStr is ${innerStr}`);
         }
       }
-      
+      // console.log(`innerStr is ${innerStr}`);
       return innerStr;
     }
-    // console.log("Checking Main String: ", mainStr, "operation:", operationType)
+    // console.log('Checking Main String: ', mainStr, 'operation:', operationType);
     // iterates through arguments object for current field and creates arg string to attach to query string
     function getArgs(fields) {
       // console.log('inside getArgs on fields', fields);
-      // console.log('inside getArgs on fields');
-      let argString = "";
-      if (!fields.__args) return "";
+      let argString = '';
+      if (!fields.__args) return '';
 
       Object.keys(fields.__args).forEach((key) => {
+        // console.log(`key on 1103 is ${key}`);
         argString
           ? (argString += `, ${key}: "${fields.__args[key]}"`)
           : (argString += `${key}: "${fields.__args[key]}"`);
+        // console.log(argString);
       });
 
       // return arg string in parentheses, or if no arguments, return an empty string
-      return argString ? `${openParen}${argString}${closeParen}` : "";
+      return argString ? `${openParen}${argString}${closeParen}` : '';
     }
 
     // if Alias exists, formats alias for query string
     function getAliasType(fields) {
-      // console.log('inside getAliasType on fields');
+      // console.log('inside getAliasType on fields', fields);
       return fields.__alias ? `: ${fields.__type}` : '';
     }
 
@@ -1117,93 +1149,174 @@ class QuellCache {
    * @param {Boolean} fromArray - whether or not the current recursive loop came from within an array, should NOT be supplied to function call
    */
   joinResponses(cacheResponse, serverResponse, queryProto, fromArray = false) {
-    // console.log('inside joinResponses');
+    console.log('inside joinResponses');
+    console.log(`cacheResponse is ${Object.entries(cacheResponse)}`);
+    console.log(`cacheResponse is ${JSON.stringify(cacheResponse)}`);
+    console.log(`serverResponse is ${JSON.stringify(serverResponse)}`);
+    console.log(`queryProto is ${JSON.stringify(queryProto)}`);
+    // console.log(`serverKeys is ${Object.keys(serverResponse[key][0])}`);
     let mergedResponse = {};
 
     // loop through fields object keys, the "source of truth" for structure
     // store combined responses in mergedResponse
     for (const key in queryProto) {
+      console.log(`key on 1156 is ${key}`);
+      console.log(
+        `cacheResponse[key] is ${JSON.stringify(cacheResponse[key])}`
+      );
+      console.log(`cacheResponse[key] is ${cacheResponse['artist']}`);
+      console.log(`cacheResponse[key] is ${cacheResponse['artist']['albums']}`);
+
       // for each key, check whether data stored at that key is an array or an object
       const checkResponse = serverResponse.hasOwnProperty(key)
         ? serverResponse
         : cacheResponse;
+      // console.log(
+      //   `on 1167 is ${
+      //     Object.prototype.hasOwnProperty.call(cacheResponse, key) &&
+      //     Object.prototype.hasOwnProperty.call(serverResponse, key)
+      //   }`
+      // );
+      console.log(`checkResponse is ${JSON.stringify(checkResponse)}`);
+      // console.log(
+      //   '1174 is ',
+      //   Object.prototype.hasOwnProperty.call(cacheResponse, key)
+      // );
+      // console.log(
+      //   '1175 is ',
+      //   Object.prototype.hasOwnProperty.call(serverResponse, key)
+      // );
       if (Array.isArray(checkResponse[key])) {
+        console.log('hit on 1169');
         // merging logic depends on whether the data is on the cacheResponse, serverResponse, or both
         // if both of the caches contain the same keys...
-        if (
-          cacheResponse.hasOwnProperty(key) &&
-          serverResponse.hasOwnProperty(key)
-        ) {
-          // we first check to see if the responses have identical keys to both avoid 
-          //only returning 1/2 of the data (ex: there are 2 objects in the cache and 
-          // you query for 4 objects (which includes the 2 cached objects) only returning 
+        if (cacheResponse[key] && serverResponse[key]) {
+          console.log('hit on 1176');
+          console.log(Object.keys(cacheResponse));
+          console.log(cacheResponse[key]);
+          console.log(Object.hasOwn(cacheResponse, key));
+          console.log(cacheResponse.hasOwnProperty(key));
+          console.log(key);
+          console.log(JSON.stringify(cacheResponse));
+          console.log(JSON.stringify(serverResponse));
+          console.log('1197 is ', cacheResponse[key] !== undefined);
+          // we first check to see if the responses have identical keys to both avoid
+          //only returning 1/2 of the data (ex: there are 2 objects in the cache and
+          // you query for 4 objects (which includes the 2 cached objects) only returning
           // the 2 new objects from the server)
           // if the keys are identical, we can return a "simple" merge of both
-          const cacheKeys = Object.keys(cacheResponse[key][0]);
+          const cacheKeys = [];
+          // const cacheKeys = Object.keys(cacheResponse[key][0]) ?? [];
+          console.log(`cacheKeys is ${cacheKeys}`);
           const serverKeys = Object.keys(serverResponse[key][0]);
+          console.log(`serverKeys is ${serverKeys}`);
           let keysSame = true;
           for (let n = 0; n < cacheKeys.length; n++) {
             if (cacheKeys[n] !== serverKeys[n]) keysSame = false;
           }
 
           if (keysSame) {
-            mergedResponse[key] = [...cacheResponse[key], ...serverResponse[key]];
+            console.log(`key on 1185 is ${key}`);
+            console.log(`mergedResponse[key] is ${mergedResponse[key]}`);
+            mergedResponse[key] = [
+              ...cacheResponse[key],
+              ...serverResponse[key],
+            ];
           }
           // otherwise, we need to combine the responses at the object level
           else {
-          const mergedArray = [];
-          for (let i = 0; i < cacheResponse[key].length; i++) {
-            // for each index of array, combine cache and server response objects
-            const joinedResponse = this.joinResponses(
-              { [key]: cacheResponse[key][i] },
-              { [key]: serverResponse[key][i] },
-              { [key]: queryProto[key] },
-              true
-            );
+            console.log('hit on 1202');
 
-            mergedArray.push(joinedResponse);
+            const mergedArray = [];
+            for (let i = 0; i < cacheResponse[key].length; i++) {
+              console.log(`key on 1196 is ${key}`);
+              console.log(`cacheResponse[key] is ${cacheResponse[key]}`);
+              console.log(
+                `cacheResponse[key].length is ${cacheResponse[key].length}`
+              );
+
+              // for each index of array, combine cache and server response objects
+              const joinedResponse = this.joinResponses(
+                { [key]: cacheResponse[key][i] },
+                { [key]: serverResponse[key][i] },
+                { [key]: queryProto[key] },
+                true
+              );
+
+              mergedArray.push(joinedResponse);
+            }
+            mergedResponse[key] = mergedArray;
           }
-          mergedResponse[key] = mergedArray;}
         } else if (cacheResponse.hasOwnProperty(key)) {
+          console.log('hit on 1225');
           mergedResponse[key] = cacheResponse[key];
         } else {
+          console.log('hit on 1229');
           mergedResponse[key] = serverResponse[key];
         }
       } else {
+        console.log('hit on 1232');
         if (!fromArray) {
+          console.log('hit on 1234');
+          console.log(JSON.stringify(cacheResponse[key]));
           // if object doesn't come from an array, we must assign on the object at the given key
           mergedResponse[key] = {
             ...cacheResponse[key],
             ...serverResponse[key],
           };
+          console.log(JSON.stringify(mergedResponse));
         } else {
+          console.log('hit on 1241');
           // if the object comes from an array, we do not want to assign to a key as per GQL spec
           mergedResponse = { ...cacheResponse[key], ...serverResponse[key] };
         }
 
         for (const fieldName in queryProto[key]) {
+          // console.log(`hit on 1247 fieldName is ${fieldName}`);
+          // console.log(`queryProto[key] is ${JSON.stringify(queryProto[key])}`);
           // check for nested objects
           if (
             typeof queryProto[key][fieldName] === 'object' &&
             !fieldName.includes('__')
           ) {
+            console.log(`1282 key is ${key} and fieldName is ${fieldName}`);
+            console.log(JSON.stringify(queryProto[key][fieldName]));
             // recurse joinResponses on that object to create deeply nested copy on mergedResponse
             let mergedRecursion = {};
+            console.log(`1285 ${cacheResponse}`);
+            console.log(`1285 ${cacheResponse[key]}`);
+            console.log(`1285 ${cacheResponse[key][fieldName]}`);
+
+            console.log(`1285 ${JSON.stringify(cacheResponse[key])}`);
+            console.log(
+              `1292 ${JSON.stringify(cacheResponse[key][fieldName])}`
+            );
+
+            console.log(`1285 ${serverResponse}`);
+            console.log(`1285 ${serverResponse[key]}`);
+            console.log(`1285 ${serverResponse[key][fieldName]}`);
+            console.log(`1285 ${JSON.stringify(serverResponse[key])}`);
+            console.log(
+              `1285 ${JSON.stringify(serverResponse[key][fieldName])}`
+            );
             if (
-              cacheResponse.hasOwnProperty(key) &&
-              serverResponse.hasOwnProperty(key)
+              cacheResponse[key].hasOwnProperty(fieldName) &&
+              serverResponse[key].hasOwnProperty(fieldName)
             ) {
+              console.log('hit on 1262');
               mergedRecursion = this.joinResponses(
                 { [fieldName]: cacheResponse[key][fieldName] },
                 { [fieldName]: serverResponse[key][fieldName] },
                 { [fieldName]: queryProto[key][fieldName] }
               );
-            } else if (cacheResponse.hasOwnProperty(key)) {
+            } else if (cacheResponse[key].hasOwnProperty[fieldName]) {
+              console.log('hit on 1269');
               mergedRecursion[fieldName] = cacheResponse[key][fieldName];
             } else {
+              console.log('hit on 1272');
               mergedRecursion[fieldName] = serverResponse[key][fieldName];
             }
-
+            console.log('hit on 1275');
             // place on merged response
             mergedResponse[key] = {
               ...mergedResponse[key],
@@ -1213,7 +1326,7 @@ class QuellCache {
         }
       }
     }
-    // console.log('inside joinResponses: ' + mergedResponse)
+    console.log('inside joinResponses: ' + JSON.stringify(mergedResponse));
     return mergedResponse;
   }
 
@@ -1224,9 +1337,10 @@ class QuellCache {
    * @param {Object} item - item to be cached
    */
   writeToCache(key, item) {
-    // console.log('inside writeToCache')
+    console.log('inside writeToCache');
+    // console.log(`key on 1249 is ${key}`);
+    console.log(`item on 1250 is ${JSON.stringify(item)}`);
     const lowerKey = key.toLowerCase();
-    // console.log('now here is lowerKey:', lowerKey)
     if (!key.includes('uncacheable')) {
       this.redisCache.set(lowerKey, JSON.stringify(item));
       this.redisCache.EXPIRE(lowerKey, this.cacheExpiration);
@@ -1239,35 +1353,45 @@ class QuellCache {
     mutationType,
     mutationQueryObject
   ) {
-  //   console.log('mutationName:', mutationName);
-  //   console.log('mutationType:', mutationType);
-  //   console.log('mutationQueryObj:', mutationQueryObject)
+    // console.log('mutationName:', mutationName);
+    // console.log('mutationType:', mutationType);
+    console.log('mutationQueryObj:', mutationQueryObject);
     let fieldsListKey;
     let dbRespId = dbRespDataRaw.data[mutationName]?.id;
-
+    console.log(`dbRespId is ${dbRespId}`);
+    console.log(`dbRespDataRaw is ${JSON.stringify(dbRespDataRaw)}`);
     let dbRespData = JSON.parse(
       JSON.stringify(dbRespDataRaw.data[mutationName])
     );
-
+    console.log(`dbRespData is ${JSON.stringify(dbRespData)}`);
     if (!dbRespData) dbRespData = {};
-
+    // console.log(` this.queryMap is ${JSON.stringify(this.queryMap)}`);
     for (let queryKey in this.queryMap) {
+      // console.log(`queryKey on 1279 is ${queryKey}`);
       let queryKeyType = this.queryMap[queryKey];
+      // console.log(`queryKeyType on 1281 is ${queryKeyType}`);
 
       if (JSON.stringify(queryKeyType) === JSON.stringify([mutationType])) {
+        console.log(`queryKeyType is ${queryKeyType}`);
+        console.log(`mutationType is ${mutationType}`);
         fieldsListKey = queryKey;
+        console.log(`fieldsListKey is ${fieldsListKey}`);
+
         break;
       }
     }
 
+    console.log(`fieldsListKey is ${fieldsListKey}`);
 
     // redisCache.set(the thing)
 
-
     const removeFromFieldKeysList = async (fieldKeysToRemove) => {
-      // console.log('inside removeFromFieldKeysList');
+      console.log('inside removeFromFieldKeysList');
       if (fieldsListKey) {
-        console.log('getting from redis line 1314ish here is key: ', queryString)
+        console.log(
+          'getting from redis line 1293 here is key: ',
+          fieldsListKey
+        );
         let cachedFieldKeysListRaw = await this.getFromRedis(fieldsListKey);
         let cachedFieldKeysList = JSON.parse(cachedFieldKeysListRaw);
 
@@ -1285,7 +1409,7 @@ class QuellCache {
     const deleteApprFieldKeys = async () => {
       console.log('inside deleteApprFieldKeys');
       if (fieldsListKey) {
-        // console.log('fieldsListKey', fieldsListKey);
+        console.log('fieldsListKey', fieldsListKey);
         let cachedFieldKeysListRaw = await this.getFromRedis(fieldsListKey);
         let cachedFieldKeysList = JSON.parse(cachedFieldKeysListRaw);
 
@@ -1299,8 +1423,10 @@ class QuellCache {
 
           let remove = true;
           for (let arg in mutationQueryObject.__args) {
+            console.log(`arg on 1327 is ${arg}`);
             if (fieldKeyValue.hasOwnProperty(arg)) {
               let argValue = mutationQueryObject.__args[arg];
+              console.log(`argValue on 1327 is ${argValue}`);
               if (fieldKeyValue[arg] !== argValue) {
                 remove = false;
                 break;
@@ -1333,6 +1459,7 @@ class QuellCache {
       // and which fields need to be updated.
 
       cachedFieldKeysList.forEach(async (fieldKey) => {
+        console.log(`fieldkey on 1363 is ${fieldKey}`);
         let fieldKeyValueRaw = await this.getFromRedis(fieldKey.toLowerCase());
         let fieldKeyValue = JSON.parse(fieldKeyValueRaw);
 
@@ -1342,7 +1469,8 @@ class QuellCache {
         Object.entries(mutationQueryObject.__args).forEach(([arg, argVal]) => {
           if (arg in fieldKeyValue && fieldKeyValue[arg] === argVal) {
             // foreign keys are not fields to update by
-            if (arg.toLowerCase().includes('id') === false) { //arg.toLowerCase
+            if (arg.toLowerCase().includes('id') === false) {
+              //arg.toLowerCase
               fieldsToUpdateBy.push(arg);
             }
           } else {
@@ -1351,18 +1479,16 @@ class QuellCache {
         });
 
         if (fieldsToUpdateBy.length > 0) {
-
           this.writeToCache(fieldKey, updatedFieldKeyValue);
         }
       });
     };
 
-
-    // console.log('mutation type:', mutationType);
-    // console.log(idCache)
+    console.log('mutation type:', mutationType);
     let hypotheticalRedisKey = `${mutationType.toLowerCase()}--${dbRespId}`;
     let redisKey = await this.getFromRedis(hypotheticalRedisKey);
-    // console.log('hypothetical redisKey: ' + redisKey)
+    // console.log('hypothetical redisKey: ' + hypotheticalRedisKey);
+    // console.log(' redisKey: ' + redisKey);
 
     if (redisKey) {
       // key was found in redis server cache so mutation is either update or delete mutation
@@ -1379,7 +1505,7 @@ class QuellCache {
           removeFromFieldKeysList([`${mutationType}--${dbRespId}`]);
         } else {
           // update mutation for single dbRespId
-         
+
           this.writeToCache(
             `${mutationType.toLowerCase()}--${mutationQueryObject.__id}`,
             dbRespData
@@ -1400,14 +1526,12 @@ class QuellCache {
         }
       }
     } else {
-
       // key was not found in redis server cache so mutation is an add mutation
-      // console.log('hypotheticalRedisKey: ', hypotheticalRedisKey)
-      // console.log('dbrespdata: ', dbRespData)
+      console.log('hypotheticalRedisKey: ', hypotheticalRedisKey);
+      console.log('dbrespdata: ', JSON.stringify(dbRespData));
       this.writeToCache(hypotheticalRedisKey, dbRespData);
     }
   }
-
 
   /**
    * deleteCacheById removes key-value from the cache unless the key indicates that the item is not available. // Note: writeToCache will JSON.stringify the input item
@@ -1415,11 +1539,12 @@ class QuellCache {
    */
 
   deleteCacheById(key) {
-    // console.log('inside deleteCacheById');
+    console.log('inside deleteCacheById');
+    console.log(`key on 1444 is ${key}`);
     return this.redisCache.del(key, (error, result) => {
-        error ? reject(error) : resolve(result);
-      });
-    };
+      error ? reject(error) : resolve(result);
+    });
+  }
 
   /**
    * normalizeForCache traverses over response data and formats it appropriately so we can store it in the cache.
@@ -1428,29 +1553,42 @@ class QuellCache {
    * @param {Object} protoField - a slice of the prototype currently being used as a template and reference for the responseData to send information to the cache
    * @param {Object} fieldsMap - another map of queries to desired data types, deprecated but untested
    */
-  async normalizeForCache(responseData, map = {}, protoField, currName, queryStr) {
-    // console.log('inside normalizeForCache');
-    // console.log('response data line 1376: ' ,  responseData)
-    // console.log('in normalize for cache, querystr is: ', queryStr)
-    // console.log(Object.keys(queryStr))
-    for (const resultName in responseData) {
-      const currField = responseData[resultName];
-      const currProto = protoField[resultName];
-      if (Array.isArray(currField)) {
+  async normalizeForCache(
+    responseData,
+    map = {},
+    protoField,
+    currName,
+    queryStr
+  ) {
+    console.log('response data line 1471: ', responseData);
+    console.log(`currName is ${currName}`);
+    console.log(`protoField is ${JSON.stringify(protoField)}`);
 
+    // console.log('in normalize for cache, querystr is: ', queryStr);
+    for (const resultName in responseData) {
+      console.log(`resultName is ${JSON.stringify(resultName)}`);
+      const currField = responseData[resultName];
+      console.log(`currField is ${JSON.stringify(currField)}`);
+      const currProto = protoField[resultName];
+      console.log(`currProto is ${JSON.stringify(currProto)}`);
+      if (Array.isArray(currField)) {
         for (let i = 0; i < currField.length; i++) {
           const el = currField[i];
-
+          console.log(`el is ${JSON.stringify(el)}`);
           const dataType = map[resultName];
-          
-          //console.log (currName)
-
+          console.log(`dataType is ${dataType}`);
+          console.log(currName);
           if (typeof el === 'object') {
-   
-            // console.log('currName is: ', currName)
-            await this.normalizeForCache({ [dataType]: el }, map, {
-              [dataType]: currProto,
-            }, currName, queryStr)
+            console.log('currName is: ', currName);
+            await this.normalizeForCache(
+              { [dataType]: el },
+              map,
+              {
+                [dataType]: currProto,
+              },
+              currName,
+              queryStr
+            );
           }
         }
       } else if (typeof currField === 'object') {
@@ -1475,12 +1613,12 @@ class QuellCache {
           ) {
             //if currname is undefined, assign to responseData at cacheid to lower case at name
             if (responseData[cacheID.toLowerCase()]) {
-              const responseDataAtCacheID = responseData[cacheID.toLowerCase()]
+              const responseDataAtCacheID = responseData[cacheID.toLowerCase()];
               currName = responseDataAtCacheID.name;
               // console.log("currName: ",currName)
             }
             //if the responseData at cacheid to lower case at name is not undefined, store under name variable and copy logic of writing to cache
-              //want to update cache with same things, all stored under name
+            //want to update cache with same things, all stored under name
             //store objKey as cacheID without ID added
             const cacheIDForIDCache = cacheID;
             // console.log(cacheIDForIDCache)
@@ -1494,11 +1632,16 @@ class QuellCache {
 
           // if object, recurse normalizeForCache assign in that object
           if (typeof currField[key] === 'object') {
-
             // console.log('currName is: ', currName)
-            await this.normalizeForCache({ [key]: currField[key] }, map, {
-              [key]: protoField[resultName][key],
-            }, currName, queryStr);
+            await this.normalizeForCache(
+              { [key]: currField[key] },
+              map,
+              {
+                [key]: protoField[resultName][key],
+              },
+              currName,
+              queryStr
+            );
           }
         }
 
@@ -1516,7 +1659,7 @@ class QuellCache {
    * @param {Function} next
    */
   clearCache(req, res, next) {
-    // console.log('inside clearCache');
+    console.log('inside clearCache');
     this.redisCache.flushAll();
     idCache = {};
     return next();
@@ -1602,264 +1745,267 @@ class QuellCache {
     // console.log('inside getStatsFromRedis');
     try {
       const getStats = () => {
-        this.redisCache.info()
+        this.redisCache
+          .info()
           .then((response) => {
-          const dataLines = response.split('\r\n');
-          //dataLines is an array of strings
+            const dataLines = response.split('\r\n');
+            //dataLines is an array of strings
 
-          const output = {
-            //SERVER
-            server: [
-              //redis version
-              {
-                name: 'Redis version',
-                value: dataLines
-                  .find((line) => line.match(/redis_version/))
-                  .split(':')[1],
-              },
-              //redis build id
-              {
-                name: 'Redis build id',
-                value: dataLines
-                  .find((line) => line.match(/redis_build_id/))
-                  .split(':')[1],
-              },
-              //redis mode
-              {
-                name: 'Redis mode',
-                value: dataLines
-                  .find((line) => line.match(/redis_mode/))
-                  .split(':')[1],
-              },
-              //os hosting redis system
-              {
-                name: 'Host operating system',
-                value: dataLines.find((line) => line.match(/os/)).split(':')[1],
-              },
-              //TCP/IP listen port
-              {
-                name: 'TCP/IP port',
-                value: dataLines
-                  .find((line) => line.match(/tcp_port/))
-                  .split(':')[1],
-              },
-              //server time
-              // {
-              //   name: 'System time',
-              //   value: dataLines
-              //     .find((line) => line.match(/server_time_in_usec/))
-              //     .split(':')[1],
-              // },
-              //num of seconds since Redis server start
-              {
-                name: 'Server uptime (seconds)',
-                value: dataLines
-                  .find((line) => line.match(/uptime_in_seconds/))
-                  .split(':')[1],
-              },
-              //num of days since Redis server start
-              {
-                name: 'Server uptime (days)',
-                value: dataLines
-                  .find((line) => line.match(/uptime_in_days/))
-                  .split(':')[1],
-              },
-              //path to server's executable
-              {
-                name: 'Path to executable',
-                value: dataLines
-                  .find((line) => line.match(/executable/))
-                  .split(':')[1],
-              },
-              //num of days since Redis server start
-              {
-                name: 'Path to configuration file',
-                value: dataLines
-                  .find((line) => line.match(/config_file/))
-                  .split(':')[1],
-              },
-            ],
-            //CLIENT
-            client: [
-              //number of connected clients
-              {
-                name: 'Connected clients',
-                value: dataLines
-                  .find((line) => line.match(/connected_clients/))
-                  .split(':')[1],
-              },
-              //number of sockets used by cluster bus
-              {
-                name: 'Cluster connections',
-                value: dataLines
-                  .find((line) => line.match(/cluster_connections/))
-                  .split(':')[1],
-              },
-              //max clients
-              {
-                name: 'Max clients',
-                value: dataLines
-                  .find((line) => line.match(/maxclients/))
-                  .split(':')[1],
-              },
-              //number of clients being tracked
-              {
-                name: 'Tracked clients',
-                value: dataLines
-                  .find((line) => line.match(/tracking_clients/))
-                  .split(':')[1],
-              },
-              //blocked clients
-              {
-                name: 'Blocked clients',
-                value: dataLines
-                  .find((line) => line.match(/blocked_clients/))
-                  .split(':')[1],
-              },
-            ],
-            //MEMORY
-            memory: [
-              //total allocated memory
-              {
-                name: 'Total allocated memory',
-                value: dataLines
-                  .find((line) => line.match(/used_memory_human/))
-                  .split(':')[1],
-              },
-              //peak memory consumed
-              {
-                name: 'Peak memory consumed',
-                value: dataLines
-                  .find((line) => line.match(/used_memory_peak_human/))
-                  .split(':')[1],
-              },
-              // % of peak out of total
-              {
-                name: 'Peak memory used % total',
-                value: dataLines
-                  .find((line) => line.match(/used_memory_peak_perc/))
-                  .split(':')[1],
-              },
-              //initial amount of memory consumed at startup
-              {
-                name: 'Memory consumed at startup',
-                value: dataLines
-                  .find((line) => line.match(/used_memory_startup/))
-                  .split(':')[1],
-              },
-              //size of dataset
-              {
-                name: 'Dataset size (bytes)',
-                value: dataLines
-                  .find((line) => line.match(/used_memory_dataset/))
-                  .split(':')[1],
-              },
-              //percent of data out of net mem usage
-              {
-                name: 'Dataset memory % total',
-                value: dataLines
-                  .find((line) => line.match(/used_memory_dataset_perc/))
-                  .split(':')[1],
-              },
-              //total system memory
-              {
-                name: 'Total system memory',
-                value: dataLines
-                  .find((line) => line.match(/total_system_memory_human/))
-                  .split(':')[1],
-              },
-            ],
-            //STATS
-            stats: [
-              //total number of connections accepted by server
-              {
-                name: 'Total connections',
-                value: dataLines
-                  .find((line) => line.match(/total_connections_received/))
-                  .split(':')[1],
-              },
-              //total number of commands processed by server
-              {
-                name: 'Total commands',
-                value: dataLines
-                  .find((line) => line.match(/total_commands_processed/))
-                  .split(':')[1],
-              },
-              //number of commands processed per second
-              {
-                name: 'Commands processed per second',
-                value: dataLines
-                  .find((line) => line.match(/instantaneous_ops_per_sec/))
-                  .split(':')[1],
-              },
-              //total number of keys being tracked
-              {
-                name: 'Tracked keys',
-                value: dataLines
-                  .find((line) => line.match(/tracking_total_keys/))
-                  .split(':')[1],
-              },
-              //total number of items being tracked(sum of clients number for each key)
-              {
-                name: 'Tracked items',
-                value: dataLines
-                  .find((line) => line.match(/tracking_total_items/))
-                  .split(':')[1],
-              },
-              //total number of read events processed
-              {
-                name: 'Reads processed',
-                value: dataLines
-                  .find((line) => line.match(/total_reads_processed/))
-                  .split(':')[1],
-              },
-              //total number of write events processed
-              {
-                name: 'Writes processed',
-                value: dataLines
-                  .find((line) => line.match(/total_writes_processed/))
-                  .split(':')[1],
-              },
-              //total number of error replies
-              {
-                name: 'Error replies',
-                value: dataLines
-                  .find((line) => line.match(/total_error_replies/))
-                  .split(':')[1],
-              },
-              //total number of bytes read from network
-              {
-                name: 'Bytes read from network',
-                value: dataLines
-                  .find((line) => line.match(/total_net_input_bytes/))
-                  .split(':')[1],
-              },
-              //networks read rate per second
-              {
-                name: 'Network read rate (Kb/s)',
-                value: dataLines
-                  .find((line) => line.match(/instantaneous_input_kbps/))
-                  .split(':')[1],
-              },
-              //total number of bytes written to network
-              {
-                name: 'Bytes written to network',
-                value: dataLines
-                  .find((line) => line.match(/total_net_output_bytes/))
-                  .split(':')[1],
-              },
-              //networks write rate per second
-              {
-                name: 'Network write rate (Kb/s)',
-                value: dataLines
-                  .find((line) => line.match(/instantaneous_output_kbps/))
-                  .split(':')[1],
-              },
-            ],
-          }
-          res.locals.redisStats = output;
-          return next();
-        })
+            const output = {
+              //SERVER
+              server: [
+                //redis version
+                {
+                  name: 'Redis version',
+                  value: dataLines
+                    .find((line) => line.match(/redis_version/))
+                    .split(':')[1],
+                },
+                //redis build id
+                {
+                  name: 'Redis build id',
+                  value: dataLines
+                    .find((line) => line.match(/redis_build_id/))
+                    .split(':')[1],
+                },
+                //redis mode
+                {
+                  name: 'Redis mode',
+                  value: dataLines
+                    .find((line) => line.match(/redis_mode/))
+                    .split(':')[1],
+                },
+                //os hosting redis system
+                {
+                  name: 'Host operating system',
+                  value: dataLines
+                    .find((line) => line.match(/os/))
+                    .split(':')[1],
+                },
+                //TCP/IP listen port
+                {
+                  name: 'TCP/IP port',
+                  value: dataLines
+                    .find((line) => line.match(/tcp_port/))
+                    .split(':')[1],
+                },
+                //server time
+                // {
+                //   name: 'System time',
+                //   value: dataLines
+                //     .find((line) => line.match(/server_time_in_usec/))
+                //     .split(':')[1],
+                // },
+                //num of seconds since Redis server start
+                {
+                  name: 'Server uptime (seconds)',
+                  value: dataLines
+                    .find((line) => line.match(/uptime_in_seconds/))
+                    .split(':')[1],
+                },
+                //num of days since Redis server start
+                {
+                  name: 'Server uptime (days)',
+                  value: dataLines
+                    .find((line) => line.match(/uptime_in_days/))
+                    .split(':')[1],
+                },
+                //path to server's executable
+                {
+                  name: 'Path to executable',
+                  value: dataLines
+                    .find((line) => line.match(/executable/))
+                    .split(':')[1],
+                },
+                //num of days since Redis server start
+                {
+                  name: 'Path to configuration file',
+                  value: dataLines
+                    .find((line) => line.match(/config_file/))
+                    .split(':')[1],
+                },
+              ],
+              //CLIENT
+              client: [
+                //number of connected clients
+                {
+                  name: 'Connected clients',
+                  value: dataLines
+                    .find((line) => line.match(/connected_clients/))
+                    .split(':')[1],
+                },
+                //number of sockets used by cluster bus
+                {
+                  name: 'Cluster connections',
+                  value: dataLines
+                    .find((line) => line.match(/cluster_connections/))
+                    .split(':')[1],
+                },
+                //max clients
+                {
+                  name: 'Max clients',
+                  value: dataLines
+                    .find((line) => line.match(/maxclients/))
+                    .split(':')[1],
+                },
+                //number of clients being tracked
+                {
+                  name: 'Tracked clients',
+                  value: dataLines
+                    .find((line) => line.match(/tracking_clients/))
+                    .split(':')[1],
+                },
+                //blocked clients
+                {
+                  name: 'Blocked clients',
+                  value: dataLines
+                    .find((line) => line.match(/blocked_clients/))
+                    .split(':')[1],
+                },
+              ],
+              //MEMORY
+              memory: [
+                //total allocated memory
+                {
+                  name: 'Total allocated memory',
+                  value: dataLines
+                    .find((line) => line.match(/used_memory_human/))
+                    .split(':')[1],
+                },
+                //peak memory consumed
+                {
+                  name: 'Peak memory consumed',
+                  value: dataLines
+                    .find((line) => line.match(/used_memory_peak_human/))
+                    .split(':')[1],
+                },
+                // % of peak out of total
+                {
+                  name: 'Peak memory used % total',
+                  value: dataLines
+                    .find((line) => line.match(/used_memory_peak_perc/))
+                    .split(':')[1],
+                },
+                //initial amount of memory consumed at startup
+                {
+                  name: 'Memory consumed at startup',
+                  value: dataLines
+                    .find((line) => line.match(/used_memory_startup/))
+                    .split(':')[1],
+                },
+                //size of dataset
+                {
+                  name: 'Dataset size (bytes)',
+                  value: dataLines
+                    .find((line) => line.match(/used_memory_dataset/))
+                    .split(':')[1],
+                },
+                //percent of data out of net mem usage
+                {
+                  name: 'Dataset memory % total',
+                  value: dataLines
+                    .find((line) => line.match(/used_memory_dataset_perc/))
+                    .split(':')[1],
+                },
+                //total system memory
+                {
+                  name: 'Total system memory',
+                  value: dataLines
+                    .find((line) => line.match(/total_system_memory_human/))
+                    .split(':')[1],
+                },
+              ],
+              //STATS
+              stats: [
+                //total number of connections accepted by server
+                {
+                  name: 'Total connections',
+                  value: dataLines
+                    .find((line) => line.match(/total_connections_received/))
+                    .split(':')[1],
+                },
+                //total number of commands processed by server
+                {
+                  name: 'Total commands',
+                  value: dataLines
+                    .find((line) => line.match(/total_commands_processed/))
+                    .split(':')[1],
+                },
+                //number of commands processed per second
+                {
+                  name: 'Commands processed per second',
+                  value: dataLines
+                    .find((line) => line.match(/instantaneous_ops_per_sec/))
+                    .split(':')[1],
+                },
+                //total number of keys being tracked
+                {
+                  name: 'Tracked keys',
+                  value: dataLines
+                    .find((line) => line.match(/tracking_total_keys/))
+                    .split(':')[1],
+                },
+                //total number of items being tracked(sum of clients number for each key)
+                {
+                  name: 'Tracked items',
+                  value: dataLines
+                    .find((line) => line.match(/tracking_total_items/))
+                    .split(':')[1],
+                },
+                //total number of read events processed
+                {
+                  name: 'Reads processed',
+                  value: dataLines
+                    .find((line) => line.match(/total_reads_processed/))
+                    .split(':')[1],
+                },
+                //total number of write events processed
+                {
+                  name: 'Writes processed',
+                  value: dataLines
+                    .find((line) => line.match(/total_writes_processed/))
+                    .split(':')[1],
+                },
+                //total number of error replies
+                {
+                  name: 'Error replies',
+                  value: dataLines
+                    .find((line) => line.match(/total_error_replies/))
+                    .split(':')[1],
+                },
+                //total number of bytes read from network
+                {
+                  name: 'Bytes read from network',
+                  value: dataLines
+                    .find((line) => line.match(/total_net_input_bytes/))
+                    .split(':')[1],
+                },
+                //networks read rate per second
+                {
+                  name: 'Network read rate (Kb/s)',
+                  value: dataLines
+                    .find((line) => line.match(/instantaneous_input_kbps/))
+                    .split(':')[1],
+                },
+                //total number of bytes written to network
+                {
+                  name: 'Bytes written to network',
+                  value: dataLines
+                    .find((line) => line.match(/total_net_output_bytes/))
+                    .split(':')[1],
+                },
+                //networks write rate per second
+                {
+                  name: 'Network write rate (Kb/s)',
+                  value: dataLines
+                    .find((line) => line.match(/instantaneous_output_kbps/))
+                    .split(':')[1],
+                },
+              ],
+            };
+            res.locals.redisStats = output;
+            return next();
+          })
           .catch((err) => {
             return next({ log: err });
           });
@@ -1871,46 +2017,45 @@ class QuellCache {
     }
   }
 
-
   getRedisKeys(req, res, next) {
     // console.log('inside getRedisKeys')
-    this.redisCache.keys('*')
+    this.redisCache
+      .keys('*')
       .then((response) => {
         res.locals.redisKeys = response;
         return next();
-        })
+      })
       .catch((err) => {
         // console.log('Error inside get keys', err);
-        return({ log: err });
+        return { log: err };
       });
-    };
-  
+  }
+
   getRedisValues(req, res, next) {
     // console.log('inside getRedisValues')
     if (res.locals.redisKeys.length !== 0) {
-        this.redisCache.mGet(res.locals.redisKeys)
+      this.redisCache
+        .mGet(res.locals.redisKeys)
         .then((response) => {
           res.locals.redisValues = response;
           return next();
-          })
+        })
         .catch((err) => {
           // console.log('Error inside get keys', err);
           return next({ log: err });
         });
-      }
-    else {
+    } else {
       res.locals.redisValues = [];
       return next();
     }
   }
 
-   /**
+  /**
    * depthLimit takes in the query, parses it, and identifies the general shape of the request.
    * depthLimit then checks the depth limit set on server connection and compares it against the current queries depth.
    * In the instance of a malicious or overly nested query, depthLimit short-circuits the query before it goes to the database,
-   * sending a status code 400 (bad request) back to the client/requester. 
+   * sending a status code 400 (bad request) back to the client/requester.
    */
-
 
   //what parameters should they take? If middleware, good as is, has to take in query obj in request, limit set inside.
   // If function inside whole of Quell, (query, limit), so they are explicitly defined and passed in
@@ -1927,34 +2072,36 @@ class QuellCache {
 
     //create AST
     const AST = parse(queryString);
-    
+
     // create response prototype, and operation type, and fragments object
     // the response prototype is used as a template for most operations in quell including caching, building modified requests, and more
     const { proto, operationType, frags } = this.parseAST(AST);
     //check for fragments
     const prototype =
-    Object.keys(frags).length > 0
-      ? this.updateProtoWithFragment(proto, frags)
-      : proto;
+      Object.keys(frags).length > 0
+        ? this.updateProtoWithFragment(proto, frags)
+        : proto;
 
     //helper function to determine the depth of the proto.
     //will be using this function to recursively go deeper into the nested query
     const determineDepth = (proto, currentDepth = 0) => {
       // console.log('inside determineDepth')
       if (currentDepth > maxDepth) {
-      //add err to res.locals.queryRes obj as a new key
-      const err = { log: `Depth limit exceeded, tried to send query with the depth of ${currentDepth}.` };
-      // console.log('Error: ', err);
-      res.locals.queryErr = err;
-      return next(err);
+        //add err to res.locals.queryRes obj as a new key
+        const err = {
+          log: `Depth limit exceeded, tried to send query with the depth of ${currentDepth}.`,
+        };
+        // console.log('Error: ', err);
+        res.locals.queryErr = err;
+        return next(err);
       }
       // console.log("Checking depth:", currentDepth)
       Object.keys(proto).forEach((key) => {
         if (typeof proto[key] === 'object' && !key.includes('__')) {
           determineDepth(proto[key], currentDepth + 1);
         }
-      })
-    }
+      });
+    };
     //call helper function
     determineDepth(prototype);
     //attach to res.locals so query doesn't need to re run these functions again.
@@ -1964,49 +2111,54 @@ class QuellCache {
     return next();
   }
 
-    /**
-   * costLimit checks the cost of the query and, n the instance of a malicious or overly nested query, 
+  /**
+   * costLimit checks the cost of the query and, n the instance of a malicious or overly nested query,
    * costLimit short-circuits the query before it goes to the database,
-   * sending a status code 400 (bad request) back to the client/requester. 
-   * @param 
-   * @param 
-   * @param 
+   * sending a status code 400 (bad request) back to the client/requester.
+   * @param
+   * @param
+   * @param
    */
 
   costLimit(req, res, next) {
     // console.log('inside costLimit')
-     //get default values for costParameters
-     let {maxCost, mutationCost, objectCost, depthCostFactor, scalarCost} = this.costParameters;
-     //maxCost can be reassigned to get maxcost limit from req.body if user selects cost limit
-     if (req.body.costOptions.maxCost) maxCost = req.body.costOptions.maxCost;
-     //return error if no query in request.
-     if (!req.body.query) return res.status(400);
-     //assign graphQL query string to variable queryString
-     const queryString = req.body.query;
-     //create AST
-     const AST = parse(queryString);
-     
-     // create response prototype, and operation type, and fragments object
-     // the response prototype is used as a template for most operations in quell including caching, building modified requests, and more
-     const { proto, operationType, frags } = this.parseAST(AST);
-     //check for fragments
-     const prototype =
-     Object.keys(frags).length > 0
-       ? this.updateProtoWithFragment(proto, frags)
-       : proto;
+    //get default values for costParameters
+    let { maxCost, mutationCost, objectCost, depthCostFactor, scalarCost } =
+      this.costParameters;
+    //maxCost can be reassigned to get maxcost limit from req.body if user selects cost limit
+    if (req.body.costOptions.maxCost) maxCost = req.body.costOptions.maxCost;
+    //return error if no query in request.
+    if (!req.body.query) return res.status(400);
+    //assign graphQL query string to variable queryString
+    const queryString = req.body.query;
+    //create AST
+    const AST = parse(queryString);
+
+    // create response prototype, and operation type, and fragments object
+    // the response prototype is used as a template for most operations in quell including caching, building modified requests, and more
+    const { proto, operationType, frags } = this.parseAST(AST);
+    //check for fragments
+    const prototype =
+      Object.keys(frags).length > 0
+        ? this.updateProtoWithFragment(proto, frags)
+        : proto;
 
     let cost = 0;
-    
+
     //mutation check
-    operationType === 'mutation' ? cost += (Object.keys(prototype).length * mutationCost) : null
+    operationType === 'mutation'
+      ? (cost += Object.keys(prototype).length * mutationCost)
+      : null;
 
     const determineCost = (proto) => {
       // console.log("inside determineCost")
       if (cost > maxCost) {
-        const err = { log: `Cost limit exceeded, tried to send query with a cost above ${maxCost}.` };
-      // console.log('Error: ', err);
-      res.locals.queryErr = err;
-      return next(err);
+        const err = {
+          log: `Cost limit exceeded, tried to send query with a cost above ${maxCost}.`,
+        };
+        // console.log('Error: ', err);
+        res.locals.queryErr = err;
+        return next(err);
         // throw new GraphQLError(
         //   `Your query exceeds maximum operation cost of ${maxCost}`,
         //   {
@@ -2017,26 +2169,27 @@ class QuellCache {
       }
       Object.keys(proto).forEach((key) => {
         if (typeof proto[key] === 'object' && !key.includes('__')) {
-          cost += objectCost
+          cost += objectCost;
           return determineCost(proto[key]);
         }
         if (proto[key] === true && !key.includes('__')) {
-          cost += scalarCost
+          cost += scalarCost;
         }
-      })
-    }
-      
+      });
+    };
+
     determineCost(prototype);
 
-  
     const determineDepthCost = (proto, totalCost = cost) => {
       // console.log("inside determineDepthCost")
       if (totalCost > maxCost) {
-        const err = { log: `Cost limit exceeded, tried to send query with a cost exceeding ${maxCost}.` };
-      // console.log('Error: ', err);
-      res.locals.queryErr = err;
+        const err = {
+          log: `Cost limit exceeded, tried to send query with a cost exceeding ${maxCost}.`,
+        };
+        // console.log('Error: ', err);
+        res.locals.queryErr = err;
 
-      return next(err);
+        return next(err);
         // console.log("The cost: ", totalCost)
         // throw new GraphQLError(
         //   // `Your query exceeds maximum operation depth of ${maxCost}`,
@@ -2052,16 +2205,16 @@ class QuellCache {
         if (typeof proto[key] === 'object' && !key.includes('__')) {
           determineDepthCost(proto[key], totalCost * depthCostFactor);
         }
-      })
-    }
-    
-    determineDepthCost(prototype)
+      });
+    };
+
+    determineDepthCost(prototype);
     //attach to res.locals so query doesn't need to re run these functions again.
     res.locals.AST = AST;
     res.locals.parsedAST = { proto, operationType, frags };
     //return next
     return next();
   }
-};
+}
 
 module.exports = QuellCache;

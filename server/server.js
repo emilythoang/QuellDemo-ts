@@ -2,7 +2,7 @@ const schema = require('./schema/schema.js');
 const express = require('express');
 const app = express();
 const cors = require('cors');
-const bodyparser = require('body-parser')
+const bodyparser = require('body-parser');
 const mongoose = require('mongoose');
 const QuellCache = require('../quell-server/src/quell');
 const quellCache = new QuellCache(schema, 13680, 3600);
@@ -13,30 +13,44 @@ app.use(bodyparser.json());
 app.use(cors());
 
 mongoose
-  .connect("mongodb+srv://quello:quello@cluster0.t8iquko.mongodb.net/?retryWrites=true&w=majority",
-  { useNewUrlParser: true, useUnifiedTopology: true })
+  .connect(
+    'mongodb+srv://quell:STpdV4dfTcoJRkma@quell.7dwxu2b.mongodb.net/?retryWrites=true&w=majority',
+    { useNewUrlParser: true, useUnifiedTopology: true }
+  )
   .then(() => console.log('Connected to BongoDB'))
-  .catch(err => console.log(err))
+  .catch((err) => console.log(err));
 
 const PORT = process.env.PORT || 3000;
 
-app.use(express.static("./dist"));
+app.use(express.static('./dist'));
 
-app.use('/api/graphql', quellCache.rateLimiter, quellCache.costLimit, quellCache.depthLimit, quellCache.query, (req, res) => {
-  return res.status(200).send(res.locals);
-});
+app.use(
+  '/api/graphql',
+  quellCache.rateLimiter,
+  quellCache.costLimit,
+  quellCache.depthLimit,
+  quellCache.query,
+  (req, res) => {
+    return res.status(200).send(res.locals);
+  }
+);
 
 app.get('/api/clearCache', quellCache.clearCache, (req, res) => {
   return res.status(200).send('Redis cache successfully cleared');
 });
 
-app.use('/api/redis', quellCache.getRedisInfo({
-  getStats: false,
-  getKeys: true,
-  getValues: true
-}));
+app.use(
+  '/api/redis',
+  quellCache.getRedisInfo({
+    getStats: false,
+    getKeys: true,
+    getValues: true,
+  })
+);
 
-app.use((req, res) => res.status(404).send('This is not the page you\'re looking for...'));
+app.use((req, res) =>
+  res.status(404).send("This is not the page you're looking for...")
+);
 
 app.use((err, req, res, next) => {
   const defaultErr = {
